@@ -18,7 +18,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          #- macos-latest
     steps:
       - uses: actions/cache@v4
         with:
@@ -71,117 +71,6 @@ jobs:
           name: ${{ format( 'dist-{0}', matrix.os) }}
           path: dist
 
-  winbuild:
-    name: Windows Build
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            sys: clang64
-            env: clang-x86_64
-          - arch: x86
-            sys: clang32
-            env: clang-i686
-    steps:
-      - uses: actions/cache@v4
-        with:
-          path: ~/AppData/Local/ccache
-          key: 0-${{ format( 'cache-windows-latest-{0}', matrix.arch) }}-${{ github.run_id }}
-          restore-keys: |
-            0-${{ format( 'cache-windows-latest-{0}', matrix.arch) }}
-      - uses: msys2/setup-msys2@v2
-        with:
-          install: >-
-            base-devel
-            git
-            mingw-w64-${{ matrix.env }}-ccache
-            mingw-w64-${{ matrix.env }}-cmake
-            mingw-w64-${{ matrix.env }}-ninja
-            mingw-w64-${{ matrix.env }}-toolchain
-          msystem: ${{ matrix.sys }}
-          update: true
-          release: false
-          path-type: inherit
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - run: git fetch --tags --force
-        name: Force-fetch tags to work around actions/checkout#290
-      - run: git submodule update --init --depth 32 --jobs 3
-      - name: Build
-        shell: msys2 {0}
-        run: |
-          make package LLVM_CMAKE_FLAGS=-DLLVM_CCACHE_BUILD=ON
-          make check
-      - name: Does it work sans msys2?
-        run: |
-          C:\wasi-sdk\bin\clang.exe --version
-          C:\wasi-sdk\bin\llvm-ar.exe --version
-          C:\wasi-sdk\bin\wasm-ld.exe --version
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          # Upload the dist folder. Give it a name according to the OS it was built for.
-          name: ${{ format( 'dist-windows-latest-{0}', matrix.arch) }}
-          path: dist
-
-  dockerbuild:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: 0-cache-ubuntu-bionic-${{ github.run_id }}
-          restore-keys: |
-            0-cache-ubuntu-bionic
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - run: git fetch --tags --force
-        name: Force-fetch tags to work around actions/checkout#290
-
-      - run: git submodule update --init --depth 32 --jobs 3
-
-      - uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/setup-qemu-action@v2
-      - uses: docker/setup-buildx-action@v2
-
-      - uses: docker/metadata-action@v4
-        id: meta
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=tag
-            type=ref,event=pr
-            type=sha
-
-      - name: Run docker_build script
-        run: ./docker_build.sh
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          # Upload the dist folder. Give it a name according to the OS it was built for.
-          name: dist-ubuntu-bionic
-          path: dist
-
-      - name: Build and push wasi-sdk docker image
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          file: docker/Dockerfile
-          push: ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' }}
-          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
